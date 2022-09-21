@@ -1,0 +1,163 @@
+<html>
+
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/near-api-js@0.45.1/dist/near-api-js.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <dialog class="near-bid-dialog">
+        <p>To reserve this slot, please call</p>
+        <p>near call queue.testnet bet '{"account_id": "<span class="target-to-send"></span>", "slot_time": <span
+                class="slot-to-send"></span>}'
+            --amount <span class="amount-to-send"></span> --account_id YOUR_ACCOUNT_ID</p>
+        <button class="dialog-close">OK</button>
+    </dialog>
+
+    <script>
+        const nearApi = window.nearApi;
+
+        $('.dialog-close').click(function () {
+            $(".near-bid-dialog")[0].close();
+        })
+
+        function handle_bid(time_slot, min_bid) {
+            //alert("Would ask: " + time_slot + " " + min_bid);
+            $(".target-to-send").text(queue_account_id);
+            $(".slot-to-send").text(time_slot);
+            $(".amount-to-send").text(min_bid);
+            $(".near-bid-dialog")[0].show();
+        }
+
+        async function updateReservationStatus(queue_account_id) {
+            const myKeyStore = new nearApi.keyStores.BrowserLocalStorageKeyStore();
+            const connectionConfig = {
+                networkId: "testnet",
+                keyStore: myKeyStore, // first create a key store 
+                nodeUrl: "https://rpc.testnet.near.org",
+                walletUrl: "https://wallet.testnet.near.org",
+                helperUrl: "https://helper.testnet.near.org",
+                explorerUrl: "https://explorer.testnet.near.org",
+            };
+            const nearConnection = await nearApi.connect(connectionConfig);
+            const account = await nearConnection.account("queue.testnet");
+
+            const contract = new nearApi.Contract(
+                account,
+                "queue.testnet",
+                {
+                    viewMethods: ["get_slots_info"],
+                }
+            );
+            const response = await contract.get_slots_info({ account_id: queue_account_id });
+            console.log(response);
+
+            results = response;
+
+            response.forEach(element => {
+                let timestamp = new Date(element[0] * 1000)
+                let row = $('<tr>')
+                    .append($('<td>').append(timestamp))
+                    .append($('<td>').append(element[1]['metadata']));
+
+                let button = $('<button>');
+                button.text('Bid');
+
+                if (element[1]['winner'] != null) {
+                    row.append($('<td>').append(element[1]['winner']['owner']))
+                        .append($('<td>').append(element[1]['winner']['amount'] / Math.pow(10, 24)))
+                        .append($('<td>').append(button));
+                    button.click(function () {
+                        handle_bid(element[0], (element[1]['winner']['amount'] / Math.pow(10, 24)) + 1);
+                    });
+                } else {
+
+                    row.append($('<td colspan=2>').append("No reservation")).append($('<td>').append(button));
+                    button.click(function () {
+                        handle_bid(element[0], 1);
+                    });
+                }
+                $('.js-tbody-slots').append(row);
+            });
+            $('.h2-header').text("Reservations for " + queue_account_id);
+            $('.owner-info').text(queue_account_id);
+
+            return nearConnection;
+        }
+
+        var urlParams = new URLSearchParams(window.location.search);
+        let queue_account_id = urlParams.get('account_id');
+
+        if (queue_account_id == null) {
+            alert("No account id");
+        } else {
+            updateReservationStatus(queue_account_id);
+        }
+    </script>
+
+    <h2 class="h2-header"></h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Info</th>
+                <th>Current winner</th>
+                <th>Current amount</th>
+                <th>Bid</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-slots"></tbody>
+    </table>
+    <hr>
+
+    <br>
+    <h3>
+        Owner only section (the buttons/commands below will work only if you're the owner of <span
+            class="owner-info"></span>):</h3>
+    <br>
+    <h4>Add new slot:</h4>
+
+    <p>near call queue.testnet add_slot '{"slot_time": SLOT_TIME_IN_SECONDS, "metadata": DESCRIPTION}' --accountId <span
+            class="owner-info"></span></p>
+
+    <br>
+    you can use https://www.epochconverter.com/ to see the current epoch time.
+
+    <br>
+    <br>
+    <h4>Claim tokens for past reservations:</h4>
+
+    <p>near call queue.testnet claim '' --account_id <span class="owner-info"></span></p>
+    <table>
+
+    </table>
+</body>
+
+</html>
