@@ -37,22 +37,139 @@
         <p>near call queue.testnet bet '{"account_id": "<span class="target-to-send"></span>", "slot_time": <span
                 class="slot-to-send"></span>}'
             --amount <span class="amount-to-send"></span> --account_id YOUR_ACCOUNT_ID</p>
+
+        OR
+        <button onclick="signin_wallet()"> Call via wallet </button>
+
+
         <button class="dialog-close">OK</button>
     </dialog>
 
+    <dialog class="near-add-slot-dialog">
+        Pick slot time: <input type="datetime-local" class="slot-time"> <br>
+
+        Description: <input type="text" class="slot-metadata"> <br>
+
+        <button onclick="add_slot_button_click()">Add slot</button>
+        <button onclick="close_add_slot_dialog()">Cancel</button>
+    </dialog>
+
+
+
     <script>
         const nearApi = window.nearApi;
+        let walletConnection = null;
+
 
         $('.dialog-close').click(function () {
             $(".near-bid-dialog")[0].close();
         })
 
+        function close_add_slot_dialog() {
+            $(".near-add-slot-dialog")[0].close();
+        }
+
+
+        function signin_wallet() {
+            walletConnection.requestSignIn(
+                "queue.testnet", // contract requesting access
+                "Queue app", // optional title
+                window.location.href, // optional redirect URL on success
+                window.location.href // optional redirect URL on failure
+            );
+        }
+
+        async function send_bid(time_slot, amount) {
+            let connection = await nearConnection;
+            let queue_account = await connection.account("queue.testnet")
+            let account = walletConnection.account();
+            const contract = new nearApi.Contract(
+                account,
+                "queue.testnet",
+                {
+                    viewMethods: ["get_slots_info"],
+                    changeMethods: ["bet"],
+                    sender: account,
+                }
+            );
+            await contract.bet(
+                {
+                    account_id: queue_account_id,
+                    slot_time: time_slot,
+                },
+                "300000000000000",
+                nearApi.utils.format.parseNearAmount(amount.toString())
+            )
+        }
+
+        async function claim_tokens() {
+            let connection = await nearConnection;
+            let queue_account = await connection.account("queue.testnet")
+            let account = walletConnection.account();
+            const contract = new nearApi.Contract(
+                account,
+                "queue.testnet",
+                {
+                    viewMethods: ["get_slots_info"],
+                    changeMethods: ["claim"],
+                    sender: account,
+                }
+            );
+            await contract.claim({
+                args: {
+                },
+                gas: "300000000000000",
+                amount: "0",
+                callbackUrl: window.location.href,
+            }
+            )
+        }
+
+        function add_slot_button_click() {
+            let slot_time_seconds = Date.parse($(".slot-time").val()) / 1000;
+            add_slot(slot_time_seconds, $(".slot-metadata").val())
+        }
+
+        async function add_slot(slot_time, metadata) {
+            let connection = await nearConnection;
+            let queue_account = await connection.account("queue.testnet")
+            let account = walletConnection.account();
+            const contract = new nearApi.Contract(
+                account,
+                "queue.testnet",
+                {
+                    viewMethods: ["get_slots_info"],
+                    changeMethods: ["add_slot"],
+                    sender: account,
+                }
+            );
+            await contract.add_slot({
+                args: {
+                    slot_time: slot_time,
+                    metadata: metadata,
+                },
+                gas: "300000000000000",
+                amount: "0",
+                callbackUrl: window.location.href,
+            }
+            )
+        }
+
         function handle_bid(time_slot, min_bid) {
             //alert("Would ask: " + time_slot + " " + min_bid);
-            $(".target-to-send").text(queue_account_id);
-            $(".slot-to-send").text(time_slot);
-            $(".amount-to-send").text(min_bid);
-            $(".near-bid-dialog")[0].show();
+            if (walletConnection.isSignedIn()) {
+                alert("Signed in " + walletConnection.getAccountId());
+                send_bid(time_slot, min_bid)
+            } else {
+                $(".target-to-send").text(queue_account_id);
+                $(".slot-to-send").text(time_slot);
+                $(".amount-to-send").text(min_bid);
+                $(".near-bid-dialog")[0].show();
+            }
+        }
+
+        function add_slot_dialog() {
+            $(".near-add-slot-dialog")[0].show();
         }
 
         async function updateReservationStatus(queue_account_id) {
@@ -67,6 +184,8 @@
             };
             const nearConnection = await nearApi.connect(connectionConfig);
             const account = await nearConnection.account("queue.testnet");
+            walletConnection = new nearApi.WalletConnection(nearConnection);
+
 
             const contract = new nearApi.Contract(
                 account,
@@ -107,22 +226,43 @@
             });
             $('.h2-header').text("Reservations for " + queue_account_id);
             $('.owner-info').text(queue_account_id);
+            if (walletConnection.isSignedIn()) {
+                let signed_in_account_id = walletConnection.getAccountId();
+                $(".signed-in-as").text("Signed in as " + signed_in_account_id + "  ");
+                if (queue_account_id != signed_in_account_id) {
+                    let link = $("<a>");
+                    link.prop("href", "?queue_id=" + signed_in_account_id);
+                    link.text("See your own reservation list");
+                    $(".signed-in-as").append(link.clone());
+                    $(".owner-only-section").append(link);
+                    $(".owner-only").hide();
+                } else {
+                    // you're the owner of the page.
+                    $(".owner-only-section").text("Owner options");
+                    $(".owner-only").show();
 
+                }
+            }
             return nearConnection;
         }
 
         var urlParams = new URLSearchParams(window.location.search);
-        let queue_account_id = urlParams.get('account_id');
+        let queue_account_id = urlParams.get('queue_id');
+        let nearConnection = null;
 
         if (queue_account_id == null) {
-            alert("No account id");
+            alert("Queue id missing from the URL");
         } else {
-            updateReservationStatus(queue_account_id);
+            nearConnection = updateReservationStatus(queue_account_id);
         }
+
     </script>
 
     <h2 class="h2-header"></h2>
-
+    <button onclick="signin_wallet()">Sign in</button>
+    <br>
+    <span class="signed-in-as"></span>
+    <br>
     <table>
         <thead>
             <tr>
@@ -138,9 +278,9 @@
     <hr>
 
     <br>
-    <h3>
+    <h3 class="owner-only-section">
         Owner only section (the buttons/commands below will work only if you're the owner of <span
-            class="owner-info"></span>):</h3>
+            class="owner-info"></span>): </h3>
     <br>
     <h4>Add new slot:</h4>
 
@@ -148,16 +288,22 @@
             class="owner-info"></span></p>
 
     <br>
-    you can use https://www.epochconverter.com/ to see the current epoch time.
+
+    <div class="owner-only">
+        OR
+        <button onclick="add_slot_dialog()">Add slot</button>
+    </div>
 
     <br>
     <br>
     <h4>Claim tokens for past reservations:</h4>
 
     <p>near call queue.testnet claim '' --account_id <span class="owner-info"></span></p>
-    <table>
+    <div class="owner-only">
+        OR
+        <button onclick="claim_tokens()">Claim tokens</button>
+    </div>
 
-    </table>
 </body>
 
 </html>
